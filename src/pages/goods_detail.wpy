@@ -1,0 +1,738 @@
+<template>
+  <view style="height:{{winHeight}}rpx;overflow:hidden">
+    <import src="../plugins/wxParse/wxParse.wxml" />
+    <!--index.wxml-->
+    <swiper indicator-dots="true" autoplay="true" interval="5000" duration="500" indicator-active-color="#ffc452" indicator-color="#efefef" class="swiper">
+      <block wx:for="{{detail.photoList}}" key="item" item="item" wx:key="key">
+        <swiper-item>
+          <image src="{{item.photo}}" data-src="{{item.photo}}" class="slide-image" @tap="previewImage" />
+        </swiper-item>
+      </block>
+    </swiper>
+    <view class="details-msg">
+      <view class="details-title">{{detail.name}}</view>
+      <view class="details_pinfo">
+        <text class="price">￥{{detail.price}}</text>
+      </view>
+    </view>
+    <view class="spacing"></view>
+    <view class="block">
+      <view class="block_title">商品详情</view>
+    </view>
+    <view class="big_images">
+      <view class="doc">
+        <view class="wxParse-p">
+          <template is="wxParse" data="{{wxParseData:detailInfo.nodes}}">
+          </template>
+        </view>
+      </view>
+    </view>
+    <view class="detail-bottom">
+      <view class="bottom-box">
+        <view class="item" @tap="homePage">
+          <i class="iconfont icon-home"></i>
+          <view class="doc">首页</view>
+        </view>
+        <contact-button class="contact">
+        </contact-button>
+        <view class="item">
+          <i class="iconfont icon-message"></i>
+          <view class="doc">客服</view>
+        </view>
+        <contact-button class="contact">
+        </contact-button>
+        <view class="item {{isFavorite?'selec_active':''}}" @tap="takeFavorite">
+          <i class="iconfont icon-collection"></i>
+          <view class="doc">收藏</view>
+        </view>
+        <view class="sy-bottom btn_cart" @tap="takeCart">加入购物车</view>
+        <view class="sy-bottom btn_order" @tap="takeOrder">立即购买</view>
+      </view>
+    </view>
+    <view class="over_model {{hidden?'hidden':''}}"></view>
+    <view class="panle_model {{hidden?'hidden':''}}" animation="{{animationData}}">
+      <view class="model_content">
+        <view class="head_box">
+          <view class="img_wrap">
+            <image class="goods_img" src="{{detail.logo}}" />
+          </view>
+          <view class="product_wrap">
+            <view class="product_name">{{detail.name}}</view>
+            <view class="price">￥ {{detail.price}}</view>
+          </view>
+        </view>
+        <scroll-view scroll-y="true" style="height:400rpx">
+          <view class="rule_box" wx:for="{{detail.goodsSkuNameList}}" item="item" wx:key="key" wx:for-index="ex">
+            <view class="title">{{item.skuName}}</view>
+            <view class="items">
+              <view class="item {{item.current?'active':''}}" wx:for="{{item.skuValList}}" item="item" wx:key="key" @tap.stop="selAttr" data-id="{{item.skuValId}}" data-nameid="{{item.skuNameId}}" data-index="{{ex}}">{{item.skuVal}}</view>
+            </view>
+          </view>
+          <view class="num_box">
+            <view class="title">数量</view>
+            <view class="stock">库存:{{detail.stockNum}}件</view>
+            <view class="buy-num">
+              <view class="jian-btn {{item.number==1? 'disabled' : ''}}" catchtap="jianBtnTap" data-index="{{index}}">-</view>
+              <input type="number" bindinput="bindOrderNumInput" value="{{orderNum}}" />
+              <view class="jia-btn {{item.number==10? 'disabled' : ''}}" catchtap="jiaBtnTap" data-index="{{index}}">+</view>
+            </view>
+          </view>
+        </scroll-view>
+        <view class="colse_model" @tap="closeModel"><i class="iconfont icon-close"></i></view>
+      </view>
+      <view class="comfire_btn" @tap.stop="confirmTake">确定</view>
+    </view>
+  </view>
+</template>
+<script>
+import wepy from 'wepy'
+import {
+  SYSTEM_INFO,
+  USER_SPECICAL_INFO
+} from '@/utils/constant';
+import tip from '@/utils/tip'
+import api from '@/api/api';
+import WxParse from "../plugins/wxParse/wxParse";
+
+export default class goodsDetail extends wepy.page {
+  config = {
+    navigationBarTitleText: '商品详情'
+  }
+  data = {
+    winWidth: 0,
+    winHeight: '100%',
+    goodsId: 0,
+    detail: {},
+    hidden: true,
+    //动画效果
+    animationData: "",
+    //购买方式:1-加购物车,2-立即购买
+    orderType: 1,
+    //购买数量
+    orderNum: 1,
+    //是否收藏
+    isFavorite: false,
+  }
+
+  onLoad(option) {
+    let that = this;
+    this.orderNum = 1;
+    this.isFavorite = false;
+    this.hidden = true;
+    this.winHeight = "100%";
+    that.detail = {};
+    //接收上一个页面传过来的参数
+    that.goodsId = option.id;
+    that.getGoodsDetail();
+    that.$apply();
+  }
+  onShow() {
+    //创建动画
+    var animation = wx.createAnimation({
+      transformOrigin: "50% 50%",
+      duration: 200,
+      timingFunction: "linear",
+      delay: 0
+    })
+    this.animation = animation;
+  }
+  wxParseImgTap(e) {
+    var that = this
+    var nowImgUrl = e.target.dataset.src
+    var tagFrom = e.target.dataset.from
+    if (typeof(tagFrom) != 'undefined' && tagFrom.length > 0) {
+      wx.previewImage({
+        current: nowImgUrl, // 当前显示图片的http链接
+        urls: that.bindData[tagFrom].imageUrls 
+      })
+    }
+  }
+  async getGoodsDetail() {
+    let that = this;
+    const json = await api.goodsDetail({
+      query: {
+        id: that.goodsId
+      }
+    });
+    let time = {};
+    if (json.data.code == 0) {
+      let data = json.data.data;
+      that.detail = data;
+      WxParse.wxParse('detailInfo', 'html', that.detail.detailInfo, this);
+    } else {
+      if (json.data.msg) {
+        tip.error(json.data.msg)
+      } else {
+        tip.error('查看商品失败')
+      }
+    }
+    that.$apply();
+  }
+  //加入购物车
+  async doTakeCart() {
+    let that = this;
+    let userSpecialInfo = wepy.getStorageSync(USER_SPECICAL_INFO) || {};
+    let openId = userSpecialInfo.openid;
+    const json = await api.addCart({
+      query: {
+        openId: openId,
+        goodsId: that.goodsId,
+        num: this.orderNum
+      }
+    });
+    if (json.data.code == 0) {
+      this.winHeight = "100%";
+      this.animation.height(0).step();
+      this.setData({
+        animationData: this.animation.export()
+      })
+      setTimeout(() => {
+        this.hidden = true;
+        this.$apply();
+      }, 100)
+      tip.success("成功加入购物车");
+    } else {
+      if (json.data.msg) {
+        tip.error(json.data.msg)
+      } else {
+        tip.error('无法加入购物车')
+      }
+    }
+  }
+  //立即购买
+  async doTakeOrder() {
+    let that = this;
+    let userSpecialInfo = wepy.getStorageSync(USER_SPECICAL_INFO) || {};
+    let openId = userSpecialInfo.openid;
+    const json = await api.addCart({
+      query: {
+        openId: openId,
+        goodsId: that.goodsId,
+        goodsSkuId: this.detail.goodsSkuValIds,
+        num: this.orderNum
+      }
+    });
+    if (json.data.code == 0) {
+      this.winHeight = "100%";
+      this.animation.height(0).step();
+      this.setData({
+        animationData: this.animation.export()
+      })
+      setTimeout(() => {
+        this.hidden = true;
+        this.$apply();
+      }, 100)
+      wepy.navigateTo({
+        url: "/pages/comfire_order?goodsId=" + that.goodsId
+      })
+    } else {
+      if (json.data.msg) {
+        tip.error(json.data.msg)
+      } else {
+        tip.error('无法立刻购买')
+      }
+    }
+  }
+  async showConfirmData() {
+    this.animation.height('783rpx').step();
+    this.setData({
+      animationData: this.animation.export()
+    })
+    setTimeout(() => {
+      this.hidden = false;
+      let systemInfo = wepy.getStorageSync(SYSTEM_INFO);
+      this.winHeight = systemInfo.windowHeight;
+      this.$apply();
+    }, 100)
+  }
+  methods = {
+    homePage() {
+      wepy.switchTab({
+        url: '/pages/home'
+      })
+    },
+    previewImage(e) {
+      let current = e.target.dataset.src;
+      let imageArry = [];
+      let obj = this.detail.photoList;
+      Object.keys(obj).forEach((item) => {
+        imageArry.push(obj[item].photo)
+      });
+      wx.previewImage({
+        current: current, // 当前显示图片的http链接
+        urls: imageArry, // 需要预览的图片http链接列表
+      })
+    },
+    bindOrderNumInput(e) {
+      this.orderNum = e.detail.value;
+    },
+    takeOrder() {
+      this.showConfirmData();
+      this.orderType = 2;
+    },
+    takeCart() {
+      this.showConfirmData();
+      this.orderType = 1;
+    },
+    takeFavorite() {
+      if (this.isFavorite == true) {
+        this.isFavorite = false;
+         tip.toast("取消收藏");
+      } else {
+        this.isFavorite = true;
+         tip.toast("收藏成功");
+      }
+    },
+    closeModel() {
+      this.winHeight = "100%";
+      this.animation.height(0).step();
+      this.setData({
+        animationData: this.animation.export()
+      })
+      setTimeout(() => {
+        this.hidden = true;
+        this.$apply();
+      }, 100)
+    },
+    confirmTake() { //确定购物车或者直接购买
+      if (this.orderType == 1) {
+        this.doTakeCart();
+      } else if (this.orderType == 2) {
+        this.doTakeOrder();
+      }
+    },
+    jiaBtnTap(e) {
+      this.orderNum++;
+    },
+    jianBtnTap() {
+      if (this.orderNum > 1) {
+        this.orderNum--;
+      }
+    },
+    selAttr(e) {
+      var id = e.currentTarget.dataset.id;
+      var nameid = e.currentTarget.dataset.nameid;
+      var index = e.currentTarget.dataset.index;
+      for (var i = 0; i < this.detail.goodsSkuNameList.length; i++) {
+        var skuValList = this.detail.goodsSkuNameList[i].skuValList;
+        for (var j = 0; j < skuValList.length; j++) {
+          var skuVal = skuValList[j];
+          if (skuVal.skuNameId == nameid) {
+            skuVal.current = false;
+            if (skuVal.skuValId == id) {
+              skuVal.current = true;
+              this.detail.goodsSkuValIds[index] = id;
+              for (var k = 0; k < this.detail.goodsSkuList.length; k++) {
+                var skuValIds = JSON.parse(this.detail.goodsSkuList[k].skuValIds).toArray;
+                if ("[" + this.detail.goodsSkuValIds.toString() + "]" === this.detail.goodsSkuList[k].skuValIds) {
+                  this.detail.stockNum = this.detail.goodsSkuList[k].stockNum;
+                  this.detail.price = this.detail.goodsSkuList[k].price;
+                  this.$apply();
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    onShareAppMessage: function(res) {
+      if (res.from === 'button') {
+        // 来自页面内转发按钮
+        console.log(res.target)
+      }
+      return {
+        title: this.detail.name,
+        path: '/pages/goods_detail?id=' + this.goodsId,
+        success: function(res) {
+          // 转发成功
+        },
+        fail: function(res) {
+          // 转发失败
+        }
+      }
+    }
+  }
+}
+</script>
+<style lang="less">
+.swiper {
+  height: 662rpx;
+}
+
+.slide-image {
+  width: 100%;
+  height: 100%;
+}
+
+.big_images {
+  height: 100%;
+  display: block;
+  margin-bottom: 90rpx;
+  image {
+    width: 100%;
+  }
+}
+
+.details-msg {
+  border-top: 1px solid #ededed;
+  padding: 30rpx 30rpx;
+  background: #fff;
+  .details-title {
+    overflow: hidden;
+    width: 100%;
+    box-sizing: border-box;
+    position: relative;
+    font-size: 30rpx;
+    color: #333;
+  }
+  .details-introduction {
+    color: #999;
+    font-size: 28rpx;
+    line-height: 40rpx;
+    margin-top: 20rpx;
+  }
+  .details_pinfo {
+    padding: 20rpx 0;
+    position: relative;
+    display: flex;
+    align-items: center;
+    .price {
+      color: #f73c3c;
+      font-size: 45rpx;
+    }
+    .other-price {
+      font-size: 28rpx;
+      padding-left: 40rpx
+    }
+    .share-box {
+      text-align: center;
+      font-size: 20rpx;
+      padding-left: 50rpx;
+      flex: 1;
+    }
+    .icon-share {
+      display: block;
+      padding-bottom: 5rpx;
+      font-size: 40rpx;
+    }
+    .baoyou {
+      color: #808080;
+      font-size: 28rpx;
+      margin-top: 20rpx;
+    }
+    .order_time {
+      position: absolute;
+      right: 170rpx;
+      top: 0rpx;
+    }
+  }
+}
+
+.order_num {
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 108rpx;
+  border-top: 1px solid #efefef;
+  border-bottom: 1px solid #efefef;
+  padding: 0 30rpx;
+  .doc {
+    color: #808080;
+    .num {
+      color: #f73c3c;
+    }
+  }
+}
+
+.block {
+  padding: 27rpx 0rpx;
+  background: #fff;
+  .block_title {
+    color: #000;
+    height: 30rpx;
+    line-height: 30rpx;
+    border-left: 6px solid #f73c3c;
+    padding-left: 20rpx;
+  }
+  .block_content {
+    padding: 38rpx 22rpx;
+    .process {
+      font-size: 20rpx;
+      margin: 0 auto;
+      border: 1px solid #999999;
+      padding: 10rpx;
+      border-radius: 200px;
+      text-align: center;
+      margin-bottom: 25rpx;
+      color: #808080;
+    }
+    .doc {
+      color: #808080;
+      font-size: 26rpx;
+      line-height: 30rpx;
+    }
+  }
+  .table {
+    margin: 0 auto;
+    margin-top: -24rpx;
+    .th {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 24rpx;
+    }
+    .tr {
+      font-size: 26rpx;
+      color: #808080;
+      text-align: left;
+      flex: 1;
+    }
+  }
+}
+
+.detail-bottom {
+  width: 100%;
+  border-top: 1px solid #ededed;
+  position: fixed;
+  bottom: 0;
+  background: #fff;
+  z-index: 1001;
+  .bottom-box {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    position: relative;
+    .contact {
+      width: 100rpx;
+      height: 80rpx;
+      margin: 0 auto;
+      position: absolute;
+      text-align: center;
+      line-height: 80rpx;
+      left: 100rpx; // 在客服上面
+      opacity: 0;
+    }
+  }
+  .sy-bottom {
+    padding: 15rpx 40rpx;
+    height: 60rpx;
+    line-height: 60rpx;
+    font-size: 30rpx;
+  }
+  .btn_order {
+    background: #ff4856;
+    color: #fff;
+  }
+  .btn_cart {
+    color: #fff;
+    background: #ff6e30;
+  }
+  .order_color {
+    background: #A9A9A9;
+    color: #fff;
+  }
+  .cart_color {
+    color: #fff;
+    background: #A9A9A9;
+  }
+  .item:first-child {
+    border-right: 1px solid #efefef;
+  }
+  .item {
+    flex: 1;
+    text-align: center;
+    .doc {
+      font-size: 24rpx;
+    }
+  }
+  .selec_active {
+    .doc {
+      color: #ff4856;
+    }
+    .iconfont {
+      color: #ff4856;
+    }
+  }
+}
+
+.over_model {
+  position: fixed;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  width: 100%;
+  height: 100%;
+  top: 0;
+}
+
+.head_box {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid #efefef;
+  padding-bottom: 26rpx;
+  .img_wrap {
+    height: 200rpx;
+    width: 200rpx;
+    background: #000;
+  }
+  .goods_img {
+    height: 200rpx;
+    width: 200rpx;
+    background: #000;
+  }
+  .product_wrap {
+    padding: 20rpx;
+  }
+  .product_name {
+    color: #666;
+  }
+  .price {
+    color: #e11500;
+    font-size: 36rpx;
+    padding-top: 32rpx;
+  }
+}
+
+.rule_box {
+  border-bottom: 1px solid #efefef;
+  padding-bottom: 26rpx;
+  .title {
+    color: #4c4c4c;
+    font-size: 32rpx;
+    margin-top: 10rpx;
+  }
+  .items {
+    display: flex;
+    flex-wrap: wrap;
+    margin-top: 5rpx;
+    margin-left: -20rpx;
+  }
+  .item {
+    padding: 15rpx 28rpx;
+    background: #e6e6e6;
+    color: #000;
+    margin-left: 20rpx;
+    margin-top: 10rpx;
+    border-radius: 10rpx;
+  }
+  .active {
+    background: #ed394a;
+    color: #fff;
+  }
+}
+
+.num_box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 15rpx 0rpx;
+  .title {
+    color: #4c4c4c;
+    font-size: 32rpx;
+  }
+}
+
+.buy-num {
+  width: 170rpx;
+  height: 48rpx;
+  line-height: 48rpx;
+  display: flex;
+  font-size: 24rpx;
+  text-align: center;
+  .jian-btn {
+    width: 48rpx;
+    height: 100%;
+    border-left: 1rpx solid #ccc;
+    border-bottom: 1rpx solid #ccc;
+    border-top: 1rpx solid #ccc;
+    border-bottom-left-radius: 6rpx;
+    border-top-left-radius: 6rpx;
+  }
+  .jian-btn.disabled {
+    background-color: #f5f5f9;
+    border-left: 1rpx solid #eee;
+    border-bottom: 1rpx solid #eee;
+    border-top: 1rpx solid #eee;
+    color: #ccc;
+  }
+  .jia-btn {
+    width: 48rpx;
+    height: 100%;
+    border-right: 1rpx solid #ccc;
+    border-bottom: 1rpx solid #ccc;
+    border-top: 1rpx solid #ccc;
+    border-bottom-right-radius: 6rpx;
+    border-top-right-radius: 6rpx;
+  }
+  .jia-btn.disabled {
+    background-color: #f5f5f9;
+    border-right: 1rpx solid #eee;
+    border-bottom: 1rpx solid #eee;
+    border-top: 1rpx solid #eee;
+    color: #ccc;
+  }
+  input {
+    width: 68rpx;
+    height: 48rpx;
+    min-height: 48rpx;
+    text-align: center;
+    font-size: 24rpx;
+    border: 1rpx solid #ccc;
+  }
+}
+
+.panle_model {
+  position: absolute;
+  height: 0rpx;
+  width: 100%;
+  z-index: 1002;
+  background: #fff;
+  bottom: 0;
+}
+
+.model_content {
+  padding: 20rpx;
+  position: relative;
+}
+
+.colse_model {
+  position: absolute;
+  right: 10rpx;
+  top: 10rpx;
+  .icon-close {
+    color: #e11500;
+    font-size: 32rpx;
+  }
+}
+
+.comfire_btn {
+  height: 100rpx;
+  line-height: 100rpx;
+  width: 100%;
+  background: #ff6e30;
+  text-align: center;
+  color: #fff;
+  position: absolute;
+  bottom: 0;
+  z-index: 10003;
+}
+
+.button-more-cmment {
+  font-size: 28rpx;
+  height: 55rpx;
+  line-height: 55rpx;
+  text-align: center;
+  margin: 20rpx auto;
+  width: 200rpx;
+  -moz-border-radius: 10rpx;
+  /* Firefox */
+  -webkit-border-radius: 10rpx;
+  /* Safari 和 Chrome */
+  border-radius: 10rpx;
+  /* Opera 10.5+, 以及使用了IE-CSS3的IE浏览器 */
+  color: #ff4856;
+  border: 1px solid #ff4856;
+}
+
+</style>
